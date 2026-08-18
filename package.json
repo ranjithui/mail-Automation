@@ -16,6 +16,7 @@
     "db:generate": "npm --workspace server run db:generate",
     "db:push": "npm --workspace server run db:push",
     "db:migrate": "npm --workspace server run db:migrate",
+    "db:deploy": "npm --workspace server exec -- prisma db push --skip-generate",
     "db:studio": "npm --workspace server run db:studio",
     "seed": "npm --workspace server run seed",
     "setup": "npm install && npm run db:generate"

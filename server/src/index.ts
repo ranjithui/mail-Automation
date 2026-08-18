@@ -1,6 +1,9 @@
 import express from 'express'
 import cors from 'cors'
 import cookieParser from 'cookie-parser'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { env } from './env.js'
 import { prisma } from './db.js'
 import { errorMiddleware } from './lib/errors.js'
@@ -58,6 +61,26 @@ app.use('/api/dashboard', dashboardRouter)
 app.use('/api/billing', billingRouter)
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Endpoint not found', code: 'not_found' }))
+
+// ------------------------- STATIC DASHBOARD -------------------------
+// In a single-service deploy (Render, Fly, a VPS) the API also serves the
+// built React app, so the browser talks to one origin and the relative
+// `/api/...` calls in web/src/lib/api.ts work with no CORS at all.
+// In local dev the Vite server owns :5173 and web/dist may not exist —
+// this block is simply skipped then.
+const webDist = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '../../web/dist')
+
+if (fs.existsSync(path.join(webDist, 'index.html'))) {
+  // Hashed asset filenames are safe to cache hard; index.html must not be.
+  app.use(express.static(webDist, { index: false, maxAge: '1y' }))
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(webDist, 'index.html'), { maxAge: 0 })
+  })
+  console.log(`[web] serving dashboard from ${webDist}`)
+} else {
+  console.log('[web] no web/dist build found — API only (run `npm run build` to bundle the dashboard)')
+}
+
 app.use(errorMiddleware)
 
 async function main() {

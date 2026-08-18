@@ -1,0 +1,94 @@
+# =============================================================
+#  RENDER BLUEPRINT — Mail Automation  (FREE TIER / TESTING)
+#
+#  One Web Service serves BOTH the Express API and the built React
+#  dashboard from the same origin, so the relative `/api/...` calls in
+#  web/src/lib/api.ts work with no CORS and no second hostname.
+#
+#  Deploy:  Render Dashboard -> New + -> Blueprint -> pick this repo.
+#
+#  ---------------------------------------------------------------
+#  THIS IS THE FREE CONFIG. Read before relying on it:
+#    * The instance SLEEPS after ~15 min idle. node-cron is frozen while
+#      asleep, so daily sends and follow-ups DO NOT fire on schedule.
+#      Trigger runs manually from the dashboard while testing.
+#    * No persistent disk. Uploaded attachments are ERASED on every
+#      redeploy, restart and wake-from-sleep.
+#    * The free Postgres is DELETED after 30 days.
+#  See "Going to production" in DEPLOY-RENDER.md for the 4 lines to change.
+#  ---------------------------------------------------------------
+# =============================================================
+
+databases:
+  - name: mail-automation-db
+    databaseName: mail_automation
+    user: mail_automation
+    plan: free             # expires 30 days after creation
+    region: singapore
+
+services:
+  - type: web
+    name: mail-automation
+    runtime: node
+    plan: free             # sleeps when idle -> scheduler pauses
+    region: singapore
+    branch: main
+
+    # --include=dev is mandatory: NODE_ENV=production would otherwise make npm
+    # skip typescript / vite / prisma, which are all build-time tools here.
+    buildCommand: npm install --include=dev && npm run db:generate && npm run build
+
+    # db:deploy runs in the runtime environment, where the internal DATABASE_URL
+    # is reachable (a build container cannot see the private network).
+    startCommand: npm run db:deploy && npm run start
+
+    healthCheckPath: /api/health
+
+    envVars:
+      - key: NODE_VERSION
+        value: "20.18.1"
+      - key: NODE_ENV
+        value: production
+
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mail-automation-db
+          property: connectionString
+
+      # Generated once by Render and then held stable.
+      # WARNING: rotating ENCRYPTION_KEY makes every stored Gmail refresh token
+      # undecryptable — connected mailboxes would all need re-authorising.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+
+      # APP_URL / API_URL / GOOGLE_REDIRECT_URI are left unset on purpose:
+      # server/src/env.ts falls back to RENDER_EXTERNAL_URL, which Render
+      # injects with this service's real https:// address.
+
+      # Ephemeral on free — there is no disk to mount. Attachments do not survive
+      # a restart. On a paid plan this becomes /var/data/uploads (see the disk
+      # block in DEPLOY-RENDER.md).
+      - key: UPLOAD_DIR
+        value: uploads
+      - key: MAX_UPLOAD_BYTES
+        value: "15728640"
+
+      # Optional. Can also be set at runtime under Settings -> Google OAuth.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+      # Optional. Leave blank to run everything on the Free plan.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_STARTER
+        sync: false
+      - key: STRIPE_PRICE_PRO
+        sync: false
+      - key: STRIPE_PRICE_BUSINESS
+        sync: false

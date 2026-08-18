@@ -4,6 +4,7 @@ import { env } from '../env.js'
 import { processRunChunk, queueRun } from './runner.js'
 import { cleanBouncedContacts } from './bounce.js'
 import { sendDailyDigest } from './digest.js'
+import { dayBounds, localParts } from '../lib/day.js'
 
 // =============================================================
 //  AUTOMATION SCHEDULER

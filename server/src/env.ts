@@ -28,6 +28,10 @@ const isProd = process.env.NODE_ENV === 'production'
 // In production both secrets are mandatory.
 const devSecret = crypto.createHash('sha256').update('mail-automation-dev-secret').digest('hex')
 
+// Render publishes the service's public https URL here. Used as the default
+// for APP_URL/API_URL so a deploy needs no hand-copied hostname.
+const renderUrl = (process.env.RENDER_EXTERNAL_URL ?? '').replace(/\/+$/, '')
+
 export const env = {
   isProd,
   port: int('PORT', 4000),
@@ -39,15 +43,21 @@ export const env = {
   // 32-byte key (hex or utf8) used for AES-256-GCM encryption of OAuth tokens.
   encryptionKey: isProd ? required('ENCRYPTION_KEY') : optional('ENCRYPTION_KEY', devSecret),
 
-  appUrl: optional('APP_URL', 'http://localhost:5173'),
-  apiUrl: optional('API_URL', 'http://localhost:4000'),
+  // On a single-service host (Render, Fly, Railway) the dashboard and the API
+  // share one origin, so the platform's own external URL is the right default
+  // for both. RENDER_EXTERNAL_URL is injected by Render automatically.
+  appUrl: optional('APP_URL', renderUrl || 'http://localhost:5173'),
+  apiUrl: optional('API_URL', renderUrl || 'http://localhost:4000'),
 
   // Fallback only. The live values are resolved by lib/appconfig.ts, which
   // prefers what an instance admin saved under Settings → Google OAuth.
   google: {
     clientId: optional('GOOGLE_CLIENT_ID'),
     clientSecret: optional('GOOGLE_CLIENT_SECRET'),
-    redirectUri: optional('GOOGLE_REDIRECT_URI', 'http://localhost:4000/api/mail-accounts/oauth/callback'),
+    redirectUri: optional(
+      'GOOGLE_REDIRECT_URI',
+      `${renderUrl || 'http://localhost:4000'}/api/mail-accounts/oauth/callback`,
+    ),
   },
 
   stripe: {
