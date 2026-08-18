@@ -1,8 +1,8 @@
 # Deploying Mail Automation to Render
 
 The whole app ships as **one Render Web Service plus one Render Postgres**.
-[render.yaml](render.yaml) is currently set to the **free tier** for testing —
-read [Free-tier limits](#free-tier-limits) before trusting it with real
+Set up below by hand in the Render dashboard, on the **free tier** for testing.
+Read [Free-tier limits](#free-tier-limits) before trusting it with real
 campaigns, and [Going to production](#going-to-production) when you are ready.
 The Express server serves the built React dashboard from the same origin, so
 there is no second hostname, no CORS config, and no `VITE_API_URL` to keep in
@@ -28,21 +28,77 @@ git commit -m "Add Render deployment"
 git push origin main
 ```
 
-## 2. Create the Blueprint
+## 2. Create the Postgres database
 
-1. Render Dashboard → **New +** → **Blueprint**
-2. Connect `github.com/ranjithui/mail-Automation`, pick the `main` branch
-3. Render reads [render.yaml](render.yaml) and proposes:
-   - Web service `mail-automation` (Free)
-   - Postgres `mail-automation-db` (Free)
-4. It will prompt for the `sync: false` variables. **Leave them all blank for
-   now** and click Apply — the app boots fine without Google or Stripe, and
-   Google credentials can be entered later in the UI.
+Render Dashboard -> **New +** -> **Postgres**
 
-First deploy takes ~5 minutes. `JWT_SECRET` and `ENCRYPTION_KEY` are generated
-by Render automatically.
+| Field | Value |
+| --- | --- |
+| Name | `mail-automation-db` |
+| Database | `mail_automation` |
+| User | `mail_automation` |
+| Region | **Singapore** (or nearest — must match the web service) |
+| Version | 16 |
+| Instance Type | **Free** |
 
-## 3. Verify
+Create it and wait for status **Available** (about a minute). Then open the
+database page and copy the **Internal Database URL** — it starts with
+`postgresql://` and contains `...-a` (no public hostname). Keep that tab open.
+
+> Use the *Internal* URL, not the External one. Internal traffic stays on
+> Render's private network: faster, free of egress, and it needs no SSL
+> parameters. It only works because the web service is in the same region.
+
+## 3. Create the Web Service
+
+Render Dashboard -> **New +** -> **Web Service** -> connect your GitHub repo.
+
+| Field | Value |
+| --- | --- |
+| Name | `mail-automation` |
+| Language / Runtime | **Node** |
+| Branch | `main` |
+| Region | **same as the database** |
+| Root Directory | *leave blank* |
+| Build Command | `npm install --include=dev && npm run db:generate && npm run build` |
+| Start Command | `npm run db:deploy && npm run start` |
+| Instance Type | **Free** |
+
+Then **Advanced** -> **Health Check Path**: `/api/health`
+
+Leave Root Directory blank on purpose — this is an npm workspaces monorepo, and
+the build has to run from the root so `server` and `web` are both installed.
+
+Node 20.18.1 is picked up automatically from [.node-version](.node-version); no
+env var needed for it.
+
+### Environment variables
+
+Add these before the first deploy (**Advanced** -> **Add Environment Variable**,
+or the Environment tab afterwards):
+
+| Key | Value |
+| --- | --- |
+| `NODE_ENV` | `production` |
+| `DATABASE_URL` | the **Internal Database URL** copied in step 2 |
+| `JWT_SECRET` | a fresh 64-char hex string (see below) |
+| `ENCRYPTION_KEY` | a *different* fresh 64-char hex string |
+| `UPLOAD_DIR` | `uploads` |
+| `MAX_UPLOAD_BYTES` | `15728640` |
+
+Generate the two secrets locally — never reuse an example from a doc:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Nothing else is required. `APP_URL`, `API_URL` and `GOOGLE_REDIRECT_URI` are
+deliberately left unset: [server/src/env.ts](server/src/env.ts) falls back to
+`RENDER_EXTERNAL_URL`, which Render injects with the service's real address.
+
+Click **Create Web Service**. The first build takes 4-6 minutes.
+
+## 4. Verify
 
 ```bash
 curl https://<your-service>.onrender.com/api/health
@@ -55,7 +111,7 @@ is the instance waking up, not a hang.
 Then open the site and register — the first account created becomes the
 instance admin.
 
-## 4. Wire up Google OAuth
+## 5. Wire up Google OAuth
 
 Gmail sending needs an OAuth client pointed at the live callback URL.
 
@@ -72,7 +128,7 @@ Gmail sending needs an OAuth client pointed at the live callback URL.
 > `GOOGLE_REDIRECT_URI` needs no value on Render. The server derives it from
 > `RENDER_EXTERNAL_URL`, which Render injects with the service's real address.
 
-## 5. Stripe (optional — skip to stay on the Free plan)
+## 6. Stripe (optional — skip to stay on the Free plan)
 
 Set in Render → Environment:
 
@@ -182,3 +238,16 @@ undecryptable and all connected mailboxes must be re-authorised.
 Add it under Render → Settings → Custom Domains, then set `APP_URL` and
 `API_URL` to `https://your-domain.com` (they otherwise default to the
 `.onrender.com` address) and add the new callback URL in Google Cloud Console.
+
+---
+
+## Alternative: one-click Blueprint
+
+[render.yaml](render.yaml) describes this exact setup declaratively. Instead of
+steps 2 and 3 you can use **New +** -> **Blueprint**, point it at this repo, and
+Render creates the database and the web service together, generating
+`JWT_SECRET` and `ENCRYPTION_KEY` for you.
+
+A manually created service ignores `render.yaml`, so the file is harmless to
+leave in place either way — and it is the reference for what the manual settings
+above should be.
